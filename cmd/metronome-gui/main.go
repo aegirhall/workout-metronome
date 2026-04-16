@@ -130,6 +130,7 @@ func (g *GUI) Build() fyne.CanvasObject {
 			g.eccentricEntry.Disable()
 			g.totalEntry.Enable()
 		}
+		g.progressRing.SetSplitMode(checked)
 	})
 
 	g.quietCheck = widget.NewCheck("Quiet mode (no audio)", nil)
@@ -272,6 +273,7 @@ func (g *GUI) startWorkout() error {
 
 	// Create metronome
 	g.totalReps = reps
+	g.progressRing.SetSplitMode(g.splitCheck.Checked)
 	m := metronome.New(config, player, g)
 	g.metronomeHandle = m
 
