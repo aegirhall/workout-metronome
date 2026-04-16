@@ -46,12 +46,6 @@ jobs:
           - goos: linux
             goarch: amd64
             suffix: linux-amd64
-          - goos: linux
-            goarch: arm64
-            suffix: linux-arm64
-          - goos: darwin
-            goarch: amd64
-            suffix: darwin-amd64
           - goos: darwin
             goarch: arm64
             suffix: darwin-arm64
