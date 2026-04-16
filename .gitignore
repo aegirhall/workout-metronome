@@ -1,7 +1,5 @@
 # Binaries
 build/
-metronome
-metronome-gui
 *.exe
 *.exe~
 *.dll
@@ -31,6 +29,7 @@ go.work.sum
 .claude/settings.local.json
 .claude/scheduled_tasks.json
 .claude/scheduled_tasks.lock
+.claude/worktrees/**
 
 # OS files
 .DS_Store
