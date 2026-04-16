@@ -21,7 +21,8 @@ import (
 )
 
 func main() {
-	myApp := app.New()
+	myApp := app.NewWithID("com.aegirhall.workout-metronome")
+	myApp.SetIcon(resourceIconPng)
 	myWindow := myApp.NewWindow("Workout Metronome")
 	myWindow.Resize(fyne.NewSize(500, 600))
 

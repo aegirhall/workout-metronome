@@ -1,4 +1,4 @@
-.PHONY: build clean test run install cross-compile help build-gui run-gui
+.PHONY: build clean test run install cross-compile help build-gui run-gui package-mac
 
 # Binary names
 BINARY_NAME=metronome
@@ -28,6 +28,11 @@ build-cli: ## Build the CLI binary for current platform
 build-gui: ## Build the GUI application for current platform
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(GUI_BINARY_NAME) ./cmd/metronome-gui
 
+package-mac: ## Package the GUI as a macOS .app bundle (requires fyne CLI)
+	fyne package -os darwin -src ./cmd/metronome-gui -name "Workout Metronome"
+	@mkdir -p $(BUILD_DIR)
+	mv "Workout Metronome.app" $(BUILD_DIR)/
+
 build: build-cli build-gui ## Build both CLI and GUI applications
 
 run: build ## Build and run the CLI application
@@ -35,6 +40,9 @@ run: build ## Build and run the CLI application
 
 run-gui: build-gui ## Build and run the GUI application
 	./$(BUILD_DIR)/$(GUI_BINARY_NAME)
+
+run-mac: package-mac ## Build and run the macOS GUI application
+	@open $(BUILD_DIR)/"Workout Metronome.app"
 
 install: ## Install the CLI binary to GOPATH/bin
 	$(GOCMD) install $(LDFLAGS) ./cmd/metronome
