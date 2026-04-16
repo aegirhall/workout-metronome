@@ -83,7 +83,8 @@ type GUI struct {
 	// Animation control
 	animationCancel context.CancelFunc
 	animationGen    int     // incremented on each new phase; goroutines skip updates from old generations
-	progressStart   float64 // starting progress for current phase (0.0 or 0.5 in split mode)
+	progressStart   float64 // starting progress for current phase
+	progressEnd     float64 // ending progress for current phase
 }
 
 // NewGUI creates a new GUI instance
@@ -373,12 +374,19 @@ func (g *GUI) OnRepPhaseStart(rep int, phase timer.Phase, duration time.Duration
 	g.phaseDuration = duration
 	g.phaseStarted = time.Now()
 
-	// In split mode, concentric starts at 0 and eccentric starts at 0.5
-	var start float64
-	if phase == timer.PhaseEccentric {
-		start = 0.5
+	// In split mode: concentric is 0→0.5, eccentric is 0.5→1.0.
+	// In whole-rep mode: each rep is 0→1.0.
+	var start, end float64
+	switch phase {
+	case timer.PhaseConcentric:
+		start, end = 0.0, 0.5
+	case timer.PhaseEccentric:
+		start, end = 0.5, 1.0
+	default: // PhaseTotal
+		start, end = 0.0, 1.0
 	}
 	g.progressStart = start
+	g.progressEnd = end
 	g.animationGen++
 	gen := g.animationGen
 
@@ -431,10 +439,8 @@ func (g *GUI) animateProgress(ctx context.Context, gen int, duration time.Durati
 
 	g.mu.Lock()
 	phaseStart := g.progressStart
+	phaseEnd := g.progressEnd
 	g.mu.Unlock()
-
-	// Each phase fills half the ring in split mode (0.5 range), or the full ring otherwise.
-	rangeSize := 1.0 - phaseStart
 
 	isCurrent := func() bool {
 		g.mu.Lock()
@@ -453,12 +459,12 @@ func (g *GUI) animateProgress(ctx context.Context, gen int, duration time.Durati
 			}
 			elapsed := time.Since(wallStart)
 			if elapsed >= duration {
-				fyne.Do(func() { g.progressRing.SetProgress(phaseStart + rangeSize) })
+				fyne.Do(func() { g.progressRing.SetProgress(phaseEnd) })
 				return
 			}
 
 			fraction := float64(elapsed) / float64(duration)
-			progress := phaseStart + fraction*rangeSize
+			progress := phaseStart + fraction*(phaseEnd-phaseStart)
 			fyne.Do(func() { g.progressRing.SetProgress(progress) })
 		}
 	}
