@@ -1,7 +1,8 @@
-.PHONY: build clean test run install cross-compile help
+.PHONY: build clean test run install cross-compile help build-gui run-gui package-mac
 
-# Binary name
+# Binary names
 BINARY_NAME=metronome
+GUI_BINARY_NAME=metronome-gui
 BUILD_DIR=build
 
 # Go parameters
@@ -21,13 +22,29 @@ help: ## Show this help message
 	@echo "Targets:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
-build: ## Build the binary for current platform
+build-cli: ## Build the CLI binary for current platform
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/metronome
 
-run: build ## Build and run the application
+build-gui: ## Build the GUI application for current platform
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(GUI_BINARY_NAME) ./cmd/metronome-gui
+
+package-mac: ## Package the GUI as a macOS .app bundle (requires fyne CLI)
+	fyne package -os darwin -src ./cmd/metronome-gui -name "Workout Metronome"
+	@mkdir -p $(BUILD_DIR)
+	mv "Workout Metronome.app" $(BUILD_DIR)/
+
+build: build-cli build-gui ## Build both CLI and GUI applications
+
+run: build ## Build and run the CLI application
 	./$(BUILD_DIR)/$(BINARY_NAME)
 
-install: ## Install the binary to GOPATH/bin
+run-gui: build-gui ## Build and run the GUI application
+	./$(BUILD_DIR)/$(GUI_BINARY_NAME)
+
+run-mac: package-mac ## Build and run the macOS GUI application
+	@open $(BUILD_DIR)/"Workout Metronome.app"
+
+install: ## Install the CLI binary to GOPATH/bin
 	$(GOCMD) install $(LDFLAGS) ./cmd/metronome
 
 test: ## Run tests

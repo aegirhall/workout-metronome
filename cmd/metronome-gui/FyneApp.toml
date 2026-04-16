@@ -1,0 +1,8 @@
+Website = "https://github.com/aegirhall/workout-metronome"
+
+[Details]
+Icon = "Icon.png"
+Name = "Workout Metronome"
+ID = "com.aegirhall.workout-metronome"
+Version = "1.0.0"
+Build = 4
