@@ -1,10 +1,13 @@
 # Binaries
 build/
+metronome
+metronome-gui
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
+*.app
 
 # Test binary, built with `go test -c`
 *.test
@@ -18,12 +21,16 @@ go.work
 go.work.sum
 
 # IDEs and such
-.claude/settings.local.json
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+
+# Claude
+.claude/settings.local.json
+.claude/scheduled_tasks.json
+.claude/scheduled_tasks.lock
 
 # OS files
 .DS_Store

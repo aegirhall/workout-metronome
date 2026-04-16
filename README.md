@@ -1,30 +1,51 @@
 # Workout Metronome
 
-A CLI tool that provides audio cues to help maintain timing during workout exercises. It beeps at specified intervals to guide you through repetitions, acting as a "metronome" for your workouts.
+A workout timing tool that provides audio cues to help maintain timing during exercises. It beeps at specified intervals to guide you through repetitions, acting as a "metronome" for your workouts.
+
+Available in two versions:
+- **CLI**: Command-line interface for terminal users
+- **GUI**: Graphical interface with visual progress indicator (macOS)
 
 ## Features
 
 - **Precise Timing**: Alternating intervals for concentric and eccentric phases (e.g., 2-second lift, 4-second lower)
+- **Whole Rep Mode**: Simple rep counting with single timer per rep
 - **Audio Cues**: Distinct beeps for start, end, and rep intervals
 - **Countdown Timer**: Optional countdown before starting your exercise
-- **Cross-Platform**: Works on macOS, Linux, and Windows
+- **Visual Progress** (GUI only): Circular progress ring showing current phase
+- **Cross-Platform**: CLI works on macOS, Linux, and Windows; GUI currently macOS only
 - **Quiet Mode**: Test timing without audio
-- **Clean Interruption**: Graceful handling of Ctrl+C
+- **Clean Interruption**: Graceful handling of stop/cancel
 
 ## Installation
 
 ### From Source
 
+**CLI Version:**
 ```bash
 # Clone the repository
 git clone https://github.com/aegirhall/workout-metronome.git
 cd workout-metronome
 
-# Build the binary
+# Build the CLI binary
 make build
 
-# Install to GOPATH/bin
+# Run from build directory
+./build/metronome -r 10 -t 5
+
+# Or install to GOPATH/bin
 make install
+```
+
+**GUI Version (macOS):**
+```bash
+# Build the GUI application
+make build-gui
+
+# Run the GUI
+make run-gui
+# Or directly
+./build/metronome-gui
 ```
 
 ### Using Go Install
@@ -35,7 +56,32 @@ go install github.com/aegirhall/workout-metronome/cmd/metronome@latest
 
 ## Usage
 
-### Two Timing Modes
+### GUI Application
+
+The GUI provides an easy-to-use interface with visual feedback:
+
+1. **Enter your workout parameters:**
+   - Number of reps
+   - Seconds per rep (default), OR
+   - Check "Split reps" and enter concentric/eccentric seconds separately
+   - Optional: Countdown duration (default 5s)
+   - Optional: Enable "Quiet mode" for display-only
+
+2. **Click Start** to begin your workout
+
+3. **Watch the circular progress ring** as it fills during each phase
+
+4. **Click Stop** to end the workout early
+
+The GUI displays:
+- Circular progress indicator (like a timer ring)
+- Current rep number and total
+- Phase name (Concentric/Eccentric or just Rep for whole rep mode)
+- Status messages
+
+### CLI Application
+
+#### Two Timing Modes
 
 **Split Phase Mode** - Separate timing for concentric and eccentric phases:
 ```bash

@@ -23,8 +23,14 @@ Workout Metronome is a cross-platform CLI tool that provides audio timing cues f
 ## Build and Test Commands
 
 ```bash
-# Build for current platform
+# Build CLI for current platform
 make build
+
+# Build GUI for current platform (macOS)
+make build-gui
+
+# Run GUI application
+make run-gui
 
 # Run all tests
 make test
@@ -38,11 +44,11 @@ go test -v -run TestName ./pkg/path
 # Clean build artifacts
 make clean
 
-# Cross-compile for all platforms
+# Cross-compile CLI for all platforms
 make cross-compile
 ```
 
-The binary is built to `build/metronome`. Audio files are embedded at compile time, so the binary is self-contained.
+Binaries are built to `build/metronome` (CLI) and `build/metronome-gui` (GUI). Audio files are embedded at compile time, so binaries are self-contained.
 
 ## Architecture
 
@@ -55,18 +61,25 @@ The codebase uses a clean three-layer architecture designed for extensibility:
 - `pkg/audio` - Audio playback abstraction with interface-based design
 - `pkg/metronome` - Orchestration layer that coordinates timer + audio
 
-**Layer 2: Interface Adapters (internal/cli/)**
-- CLI-specific code (Cobra framework, terminal output)
-- Implements `metronome.Observer` interface for console output
-- Could be replaced with web/mobile UI without changing core packages
+**Layer 2: Interface Adapters**
+- `internal/cli/` - CLI-specific code (Cobra framework, terminal output)
+  - Implements `metronome.Observer` interface for console output
+- `cmd/metronome-gui/` - GUI application (Fyne framework, macOS)
+  - Also implements `metronome.Observer` for visual updates
+  - Custom circular progress widget
+  - Could be replaced with web/mobile UI without changing core packages
 
-**Layer 3: Entry Point (cmd/metronome/)**
-- Wires everything together
-- Signal handling for graceful shutdown
+**Layer 3: Entry Points**
+- `cmd/metronome/` - CLI application entry point
+  - Wires everything together
+  - Signal handling for graceful shutdown
+- `cmd/metronome-gui/` - GUI application entry point
+  - Fyne-based GUI with form inputs and visual progress
+  - Circular progress ring matching iOS timer aesthetic
 
 ### Key Design Patterns
 
-**Observer Pattern**: The core uses an Observer interface (`pkg/metronome/metronome.go`) to decouple workout events from UI presentation. The CLI implements `CLIObserver` for terminal output, but future UIs (web, mobile) can provide their own implementations.
+**Observer Pattern**: The core uses an Observer interface (`pkg/metronome/metronome.go`) to decouple workout events from UI presentation. The CLI implements `CLIObserver` for terminal output, and the GUI implements the interface for visual updates (circular progress, status labels). Future UIs (web, mobile) can provide their own implementations.
 
 **Event-Driven Timer**: `pkg/timer` emits events over channels rather than using callbacks. This enables:
 - Clean context-based cancellation
@@ -158,7 +171,13 @@ To add a new UI (web, mobile, etc.):
 3. Create appropriate `audio.Player` implementation if needed
 4. Wire components together with dependency injection
 
-The core packages (`pkg/*`) should remain UI-agnostic. Never import CLI-specific code (`internal/cli`) into `pkg/`.
+**Example**: See `cmd/metronome-gui/` for a complete GUI implementation using Fyne. The GUI:
+- Implements all Observer methods to update visual elements
+- Uses a custom `CircularProgress` widget for the progress ring
+- Runs the metronome in a goroutine and updates UI via callbacks
+- Manages workout state (running, paused, stopped)
+
+The core packages (`pkg/*`) should remain UI-agnostic. Never import CLI-specific code (`internal/cli`) or GUI code (`cmd/metronome-gui`) into `pkg/`.
 
 ## Module Name
 
