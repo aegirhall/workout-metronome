@@ -213,3 +213,143 @@ func TestPhaseString(t *testing.T) {
 		}
 	}
 }
+
+func TestTimerPauseResume(t *testing.T) {
+	config := Config{
+		Reps:               1,
+		ConcentricDuration: 100 * time.Millisecond,
+		EccentricDuration:  100 * time.Millisecond,
+		CountdownDuration:  0,
+		NoCountdown:        true,
+	}
+
+	timer := NewTimer(config)
+	ctx := context.Background()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- timer.Start(ctx)
+	}()
+
+	events := []Event{}
+	eventsDone := make(chan struct{})
+	go func() {
+		for event := range timer.Events() {
+			events = append(events, event)
+		}
+		close(eventsDone)
+	}()
+
+	// Wait until phase starts
+	time.Sleep(30 * time.Millisecond)
+
+	// Pause
+	timer.Pause()
+	if !timer.IsPaused() {
+		t.Error("expected timer to be paused")
+	}
+
+	// Double pause should be a safe no-op
+	timer.Pause()
+
+	// Wait while paused (longer than the remaining phase duration)
+	time.Sleep(150 * time.Millisecond)
+
+	// Verify workout has not completed yet
+	select {
+	case <-done:
+		t.Fatal("timer completed while paused")
+	default:
+	}
+
+	// Resume
+	timer.Resume()
+	if timer.IsPaused() {
+		t.Error("expected timer to not be paused after resume")
+	}
+
+	// Double resume should be a safe no-op
+	timer.Resume()
+
+	// Wait for completion
+	if err := <-done; err != nil {
+		t.Fatalf("timer error: %v", err)
+	}
+	<-eventsDone
+
+	// Ensure all events completed
+	if len(events) < 5 {
+		t.Fatalf("expected at least 5 events, got %d", len(events))
+	}
+	if events[len(events)-1].Type != EventWorkoutComplete {
+		t.Errorf("expected final event to be WorkoutComplete, got %v", events[len(events)-1].Type)
+	}
+}
+
+func TestTimerPauseDuringCountdown(t *testing.T) {
+	config := Config{
+		Reps:               1,
+		ConcentricDuration: 50 * time.Millisecond,
+		EccentricDuration:  50 * time.Millisecond,
+		CountdownDuration:  2 * time.Second,
+		NoCountdown:        false,
+	}
+
+	timer := NewTimer(config)
+	ctx := context.Background()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- timer.Start(ctx)
+	}()
+
+	// Pause shortly after countdown starts (during 2s countdown)
+	time.Sleep(200 * time.Millisecond)
+	timer.Pause()
+
+	// Wait while paused (more than 1 second, which would normally advance to countdown 1)
+	time.Sleep(1200 * time.Millisecond)
+
+	timer.Resume()
+
+	// Drain events
+	for range timer.Events() {
+	}
+
+	if err := <-done; err != nil {
+		t.Fatalf("timer error: %v", err)
+	}
+}
+
+func TestTimerCancellationWhilePaused(t *testing.T) {
+	config := Config{
+		Reps:               2,
+		ConcentricDuration: 500 * time.Millisecond,
+		EccentricDuration:  500 * time.Millisecond,
+		CountdownDuration:  0,
+		NoCountdown:        true,
+	}
+
+	timer := NewTimer(config)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+	go func() {
+		done <- timer.Start(ctx)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	timer.Pause()
+
+	// Cancel while paused
+	cancel()
+
+	// Drain events
+	for range timer.Events() {
+	}
+
+	err := <-done
+	if err != context.Canceled {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+}

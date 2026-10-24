@@ -2,6 +2,7 @@ package timer
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -72,19 +73,107 @@ type Config struct {
 type Timer struct {
 	config Config
 	events chan Event
+
+	mu       sync.Mutex
+	isPaused bool
+	pauseCh  chan struct{}
+	resumeCh chan struct{}
 }
 
 // NewTimer creates a new timer with the given configuration
 func NewTimer(config Config) *Timer {
 	return &Timer{
-		config: config,
-		events: make(chan Event, 10),
+		config:   config,
+		events:   make(chan Event, 10),
+		pauseCh:  make(chan struct{}),
+		resumeCh: make(chan struct{}),
 	}
 }
 
 // Events returns the read-only event channel
 func (t *Timer) Events() <-chan Event {
 	return t.events
+}
+
+// Pause pauses the timer countdown or phase execution
+func (t *Timer) Pause() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.isPaused {
+		return
+	}
+	t.isPaused = true
+	close(t.pauseCh)
+	t.resumeCh = make(chan struct{})
+}
+
+// Resume resumes the timer countdown or phase execution
+func (t *Timer) Resume() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.isPaused {
+		return
+	}
+	t.isPaused = false
+	close(t.resumeCh)
+	t.pauseCh = make(chan struct{})
+}
+
+// IsPaused returns whether the timer is currently paused
+func (t *Timer) IsPaused() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.isPaused
+}
+
+// waitIfPaused blocks while the timer is paused until it is resumed or the context is canceled
+func (t *Timer) waitIfPaused(ctx context.Context) error {
+	t.mu.Lock()
+	for t.isPaused {
+		resumeCh := t.resumeCh
+		t.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-resumeCh:
+		}
+		t.mu.Lock()
+	}
+	t.mu.Unlock()
+	return nil
+}
+
+// sleep waits for the given duration, pausing and resuming as instructed
+func (t *Timer) sleep(ctx context.Context, duration time.Duration) error {
+	remaining := duration
+	for remaining > 0 {
+		if err := t.waitIfPaused(ctx); err != nil {
+			return err
+		}
+
+		t.mu.Lock()
+		pauseCh := t.pauseCh
+		t.mu.Unlock()
+
+		timer := time.NewTimer(remaining)
+		start := time.Now()
+
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+			return nil
+		case <-pauseCh:
+			timer.Stop()
+			elapsed := time.Since(start)
+			remaining -= elapsed
+			if remaining < 0 {
+				remaining = 0
+			}
+		}
+	}
+	return nil
 }
 
 // Start begins the timer and emits events
@@ -96,6 +185,10 @@ func (t *Timer) Start(ctx context.Context) error {
 		if err := t.runCountdown(ctx); err != nil {
 			return err
 		}
+	}
+
+	if err := t.waitIfPaused(ctx); err != nil {
+		return err
 	}
 
 	// Emit workout start event
@@ -110,6 +203,10 @@ func (t *Timer) Start(ctx context.Context) error {
 
 	// Workout phase
 	if err := t.runWorkout(ctx); err != nil {
+		return err
+	}
+
+	if err := t.waitIfPaused(ctx); err != nil {
 		return err
 	}
 
@@ -131,6 +228,10 @@ func (t *Timer) runCountdown(ctx context.Context) error {
 	seconds := int(t.config.CountdownDuration.Seconds())
 
 	for i := seconds; i > 0; i-- {
+		if err := t.waitIfPaused(ctx); err != nil {
+			return err
+		}
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -141,11 +242,9 @@ func (t *Timer) runCountdown(ctx context.Context) error {
 		}:
 		}
 
-		// Wait for 1 second
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(1 * time.Second):
+		// Wait for 1 second, respecting pause
+		if err := t.sleep(ctx, 1*time.Second); err != nil {
+			return err
 		}
 	}
 
@@ -176,6 +275,10 @@ func (t *Timer) runWorkout(ctx context.Context) error {
 			}
 		}
 
+		if err := t.waitIfPaused(ctx); err != nil {
+			return err
+		}
+
 		// Emit rep complete event
 		select {
 		case <-ctx.Done():
@@ -193,6 +296,10 @@ func (t *Timer) runWorkout(ctx context.Context) error {
 
 // runPhase handles a single phase (concentric or eccentric)
 func (t *Timer) runPhase(ctx context.Context, rep int, phase Phase, duration time.Duration) error {
+	if err := t.waitIfPaused(ctx); err != nil {
+		return err
+	}
+
 	// Emit phase start event
 	select {
 	case <-ctx.Done():
@@ -206,12 +313,6 @@ func (t *Timer) runPhase(ctx context.Context, rep int, phase Phase, duration tim
 	}:
 	}
 
-	// Wait for the phase duration
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(duration):
-	}
-
-	return nil
+	// Wait for the phase duration, respecting pause
+	return t.sleep(ctx, duration)
 }

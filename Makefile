@@ -14,6 +14,7 @@ GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 
 # Build flags
+export GOFLAGS ?= -buildvcs=false
 LDFLAGS=-ldflags "-s -w"
 
 help: ## Show this help message

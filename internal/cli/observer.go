@@ -56,6 +56,16 @@ func (o *CLIObserver) OnWorkoutComplete(totalDuration time.Duration) {
 	fmt.Fprintf(o.writer, "\nWORKOUT COMPLETE! Total time: %s\n", formatDuration(totalDuration))
 }
 
+// OnPause is called when the workout is paused
+func (o *CLIObserver) OnPause() {
+	fmt.Fprintf(o.writer, " [PAUSED] ")
+}
+
+// OnResume is called when the workout is resumed
+func (o *CLIObserver) OnResume() {
+	fmt.Fprintf(o.writer, " [RESUMED] ")
+}
+
 // OnError is called when an error occurs
 func (o *CLIObserver) OnError(err error) {
 	fmt.Fprintf(o.writer, "\nError: %v\n", err)

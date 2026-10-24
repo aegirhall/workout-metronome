@@ -12,13 +12,15 @@ import (
 
 // MockObserver implements Observer for testing
 type MockObserver struct {
-	CountdownCalls      int
-	WorkoutStartCalls   int
-	RepPhaseStartCalls  int
-	RepCompleteCalls    int
+	CountdownCalls       int
+	WorkoutStartCalls    int
+	RepPhaseStartCalls   int
+	RepCompleteCalls     int
 	WorkoutCompleteCalls int
-	ErrorCalls          int
-	mu                  sync.Mutex
+	PauseCalls           int
+	ResumeCalls          int
+	ErrorCalls           int
+	mu                   sync.Mutex
 }
 
 func (m *MockObserver) OnCountdown(remaining int) {
@@ -49,6 +51,18 @@ func (m *MockObserver) OnWorkoutComplete(totalDuration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.WorkoutCompleteCalls++
+}
+
+func (m *MockObserver) OnPause() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.PauseCalls++
+}
+
+func (m *MockObserver) OnResume() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ResumeCalls++
 }
 
 func (m *MockObserver) OnError(err error) {
@@ -212,5 +226,70 @@ func TestMetronomeClose(t *testing.T) {
 	// Close should not error
 	if err := m.Close(); err != nil {
 		t.Errorf("unexpected error on close: %v", err)
+	}
+}
+
+func TestMetronomePauseResume(t *testing.T) {
+	config := Config{
+		Reps:               2,
+		ConcentricDuration: 100 * time.Millisecond,
+		EccentricDuration:  100 * time.Millisecond,
+		CountdownDuration:  0,
+		NoCountdown:        true,
+	}
+
+	player := audio.NewMockPlayer()
+	observer := &MockObserver{}
+	m := New(config, player, observer)
+
+	ctx := context.Background()
+	done := make(chan error, 1)
+	go func() {
+		done <- m.Start(ctx)
+	}()
+
+	// Wait for Rep 1 to begin
+	time.Sleep(30 * time.Millisecond)
+
+	m.Pause()
+	if !m.IsPaused() {
+		t.Error("expected metronome to be paused")
+	}
+
+	// Verify observer got OnPause
+	if observer.PauseCalls != 1 {
+		t.Errorf("expected 1 pause call, got %d", observer.PauseCalls)
+	}
+
+	// Wait while paused (longer than phase duration)
+	time.Sleep(150 * time.Millisecond)
+
+	// Ensure workout has not completed while paused
+	select {
+	case <-done:
+		t.Fatal("metronome finished while paused")
+	default:
+	}
+
+	m.Resume()
+	if m.IsPaused() {
+		t.Error("expected metronome to not be paused")
+	}
+
+	if observer.ResumeCalls != 1 {
+		t.Errorf("expected 1 resume call, got %d", observer.ResumeCalls)
+	}
+
+	if err := <-done; err != nil {
+		t.Fatalf("metronome error: %v", err)
+	}
+
+	// Verify all reps completed and beep counts match formula for 2 reps split: 2N+1 = 5
+	beeps := player.GetBeepsPlayed()
+	if len(beeps) != 5 {
+		t.Errorf("expected 5 beeps, got %d (%v)", len(beeps), beeps)
+	}
+	if observer.RepCompleteCalls != 2 {
+		t.Errorf("expected 2 rep complete calls, got %d", observer.RepCompleteCalls)
 	}
 }

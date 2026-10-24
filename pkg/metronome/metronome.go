@@ -3,6 +3,7 @@ package metronome
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/aegirhall/workout-metronome/pkg/audio"
@@ -21,6 +22,10 @@ type Observer interface {
 	OnRepComplete(rep int, totalReps int)
 	// OnWorkoutComplete is called when the workout finishes
 	OnWorkoutComplete(totalDuration time.Duration)
+	// OnPause is called when the workout is paused
+	OnPause()
+	// OnResume is called when the workout is resumed
+	OnResume()
 	// OnError is called when an error occurs
 	OnError(err error)
 }
@@ -40,6 +45,12 @@ type Metronome struct {
 	config   Config
 	player   audio.Player
 	observer Observer
+
+	mu                  sync.Mutex
+	timer               *timer.Timer
+	isPaused            bool
+	pauseStartTime      time.Time
+	totalPausedDuration time.Duration
 }
 
 // New creates a new Metronome
@@ -67,6 +78,19 @@ func (m *Metronome) Start(ctx context.Context) error {
 
 	// Create and start timer
 	t := timer.NewTimer(timerConfig)
+
+	m.mu.Lock()
+	m.timer = t
+	m.isPaused = false
+	m.totalPausedDuration = 0
+	m.mu.Unlock()
+
+	defer func() {
+		m.mu.Lock()
+		m.timer = nil
+		m.isPaused = false
+		m.mu.Unlock()
+	}()
 
 	// Run timer in goroutine
 	timerCtx, cancel := context.WithCancel(ctx)
@@ -105,6 +129,39 @@ func (m *Metronome) Start(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// Pause pauses the workout
+func (m *Metronome) Pause() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.timer != nil && !m.isPaused {
+		m.isPaused = true
+		m.pauseStartTime = time.Now()
+		m.timer.Pause()
+		m.observer.OnPause()
+	}
+}
+
+// Resume resumes the workout
+func (m *Metronome) Resume() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.timer != nil && m.isPaused {
+		m.isPaused = false
+		m.totalPausedDuration += time.Since(m.pauseStartTime)
+		m.timer.Resume()
+		m.observer.OnResume()
+	}
+}
+
+// IsPaused returns whether the workout is currently paused
+func (m *Metronome) IsPaused() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.isPaused
 }
 
 // handleEvent processes a timer event
@@ -149,7 +206,17 @@ func (m *Metronome) handleEvent(event timer.Event, currentRep *int, lastPhase *t
 		m.observer.OnRepComplete(event.RepNumber, m.config.Reps)
 
 	case timer.EventWorkoutComplete:
-		totalDuration := time.Since(startTime)
+		m.mu.Lock()
+		pausedDuration := m.totalPausedDuration
+		if m.isPaused {
+			pausedDuration += time.Since(m.pauseStartTime)
+		}
+		m.mu.Unlock()
+
+		totalDuration := time.Since(startTime) - pausedDuration
+		if totalDuration < 0 {
+			totalDuration = 0
+		}
 		m.observer.OnWorkoutComplete(totalDuration)
 		// Play end beep
 		if err := m.player.Play(audio.BeepEnd); err != nil {

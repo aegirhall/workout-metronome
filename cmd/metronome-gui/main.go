@@ -86,6 +86,7 @@ type GUI struct {
 	animationGen    int     // incremented on each new phase; goroutines skip updates from old generations
 	progressStart   float64 // starting progress for current phase
 	progressEnd     float64 // ending progress for current phase
+	lastStatus      string
 }
 
 // NewGUI creates a new GUI instance
@@ -187,17 +188,26 @@ func (g *GUI) Build() fyne.CanvasObject {
 // onPlayPause handles the play/pause button
 func (g *GUI) onPlayPause() {
 	g.mu.Lock()
-	defer g.mu.Unlock()
+	running := g.isRunning
+	paused := g.isPaused
+	m := g.metronomeHandle
+	g.mu.Unlock()
 
-	if !g.isRunning {
-		// Start workout
+	if !running {
+		g.mu.Lock()
+		defer g.mu.Unlock()
 		if err := g.startWorkout(); err != nil {
 			g.statusLabel.SetText(fmt.Sprintf("Error: %v", err))
 			return
 		}
+	} else if !paused {
+		if m != nil {
+			m.Pause()
+		}
 	} else {
-		// Note: Pause functionality would require core metronome changes
-		// For now, we don't support pause
+		if m != nil {
+			m.Resume()
+		}
 	}
 }
 
@@ -291,7 +301,10 @@ func (g *GUI) startWorkout() error {
 
 	// Update UI state
 	g.isRunning = true
-	g.playPauseButton.Disable() // Disable for now (no pause support)
+	g.isPaused = false
+	g.playPauseButton.SetText("Pause")
+	g.playPauseButton.SetIcon(theme.MediaPauseIcon())
+	g.playPauseButton.Enable()
 	g.stopButton.Enable()
 	g.disableInputs()
 
@@ -311,6 +324,7 @@ func (g *GUI) resetUI() {
 	g.cancel = nil
 	g.currentRep = 0
 	g.totalReps = 0
+	g.lastStatus = ""
 
 	g.playPauseButton.SetText("Start")
 	g.playPauseButton.SetIcon(theme.MediaPlayIcon())
@@ -354,14 +368,24 @@ func (g *GUI) enableInputs() {
 
 func (g *GUI) OnCountdown(remaining int) {
 	fyne.Do(func() {
-		g.statusLabel.SetText(fmt.Sprintf("Countdown: %d", remaining))
+		g.mu.Lock()
+		g.lastStatus = fmt.Sprintf("Countdown: %d", remaining)
+		if !g.isPaused {
+			g.statusLabel.SetText(g.lastStatus)
+		}
+		g.mu.Unlock()
 		g.progressRing.SetLabel(fmt.Sprintf("%d", remaining))
 	})
 }
 
 func (g *GUI) OnWorkoutStart() {
 	fyne.Do(func() {
-		g.statusLabel.SetText("Workout in progress")
+		g.mu.Lock()
+		g.lastStatus = "Workout in progress"
+		if !g.isPaused {
+			g.statusLabel.SetText(g.lastStatus)
+		}
+		g.mu.Unlock()
 	})
 }
 
@@ -411,6 +435,11 @@ func (g *GUI) OnRepComplete(rep int, totalReps int) {
 
 func (g *GUI) OnWorkoutComplete(totalDuration time.Duration) {
 	fyne.Do(func() {
+		g.mu.Lock()
+		g.playPauseButton.Disable()
+		g.stopButton.Disable()
+		g.mu.Unlock()
+
 		g.statusLabel.SetText(fmt.Sprintf("Complete! Total: %s", formatDuration(totalDuration)))
 		g.progressRing.SetProgressAndLabel(1.0, "✓")
 	})
@@ -425,6 +454,32 @@ func (g *GUI) OnWorkoutComplete(totalDuration time.Duration) {
 	})
 }
 
+func (g *GUI) OnPause() {
+	fyne.Do(func() {
+		g.mu.Lock()
+		g.isPaused = true
+		g.playPauseButton.SetText("Resume")
+		g.playPauseButton.SetIcon(theme.MediaPlayIcon())
+		g.statusLabel.SetText("Paused")
+		g.mu.Unlock()
+	})
+}
+
+func (g *GUI) OnResume() {
+	fyne.Do(func() {
+		g.mu.Lock()
+		g.isPaused = false
+		g.playPauseButton.SetText("Pause")
+		g.playPauseButton.SetIcon(theme.MediaPauseIcon())
+		if g.lastStatus != "" {
+			g.statusLabel.SetText(g.lastStatus)
+		} else {
+			g.statusLabel.SetText("Workout in progress")
+		}
+		g.mu.Unlock()
+	})
+}
+
 func (g *GUI) OnError(err error) {
 	fyne.Do(func() {
 		g.statusLabel.SetText(fmt.Sprintf("Error: %v", err))
@@ -436,7 +491,6 @@ func (g *GUI) OnError(err error) {
 // In whole-rep mode, each rep animates 0→1.0.
 // gen is a generation counter; stale goroutines skip their updates.
 func (g *GUI) animateProgress(ctx context.Context, gen int, duration time.Duration) {
-	wallStart := time.Now()
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -451,22 +505,37 @@ func (g *GUI) animateProgress(ctx context.Context, gen int, duration time.Durati
 		return g.animationGen == gen
 	}
 
+	var accumulated time.Duration
+	lastTick := time.Now()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 
-		case <-ticker.C:
+		case now := <-ticker.C:
 			if !isCurrent() {
 				return
 			}
-			elapsed := time.Since(wallStart)
-			if elapsed >= duration {
+
+			g.mu.Lock()
+			paused := g.isPaused
+			g.mu.Unlock()
+
+			if paused {
+				lastTick = now
+				continue
+			}
+
+			accumulated += now.Sub(lastTick)
+			lastTick = now
+
+			if accumulated >= duration {
 				fyne.Do(func() { g.progressRing.SetProgress(phaseEnd) })
 				return
 			}
 
-			fraction := float64(elapsed) / float64(duration)
+			fraction := float64(accumulated) / float64(duration)
 			progress := phaseStart + fraction*(phaseEnd-phaseStart)
 			fyne.Do(func() { g.progressRing.SetProgress(progress) })
 		}
